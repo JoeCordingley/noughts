@@ -2,20 +2,21 @@ module Main where
 
 import Prelude
 
-import Deku.Control (text_)
-import Deku.Toplevel (runInBody)
-import Effect (Effect)
-import Data.Maybe (Maybe(..))
 import Data.Array (replicate)
+import Data.Const (Const(..))
+import Data.Identity (Identity(..))
+import Data.Maybe (Maybe(..))
+import Data.Newtype (unwrap)
+import Data.Tuple.Nested ((/\))
+import Deku.Control (text_, text)
+import Deku.Core (Nut)
 import Deku.DOM as D
 import Deku.DOM.Attributes as DA
 import Deku.Do as Deku
 import Deku.Hooks (useState)
-import Data.Tuple.Nested ((/\))
-import Deku.Core (Nut)
-import Data.Identity (Identity(..))
-import Data.Const (Const(..))
-import Data.Newtype (unwrap)
+import Deku.Toplevel (runInBody)
+import Effect (Effect)
+import FRP.Poll (Poll)
 
 main :: Effect Unit
 main = do
@@ -23,11 +24,11 @@ main = do
     _ /\ _ <- useState emptyBoard
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (replicate 9 space)
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (replicate 9 (space (pure "X")))
       ]
 
-space :: Nut
-space = (D.div [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300" ] [])
+space :: Poll String -> Nut
+space s = (D.div [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300" ] [text s])
 
 type Lens s a = forall f. Functor f => (a -> f a) -> s -> f s
 
