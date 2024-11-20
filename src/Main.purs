@@ -2,68 +2,87 @@ module Main where
 
 import Prelude
 
-import Data.Array (replicate)
-import Data.Const (Const(..))
-import Data.Identity (Identity(..))
+-- import Data.Array (replicate)
 import Data.Maybe (Maybe(..))
-import Data.Newtype (unwrap)
 import Data.Tuple.Nested ((/\))
-import Deku.Control (text_, text)
+import Data.Tuple (Tuple)
+import Deku.Control (text_)
 import Deku.Core (Nut)
 import Deku.DOM as D
 import Deku.DOM.Attributes as DA
+import Deku.DOM.Listeners as DL
 import Deku.Do as Deku
-import Deku.Hooks (useState)
+-- import Deku.Hooks (useState, (<#~>))
+import Deku.Hooks (useState, (<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
 import FRP.Poll (Poll)
+import Data.Lens (Lens', set, view)
+import Data.Lens.Record (prop)
+import Type.Proxy (Proxy(..))
+import Unsafe.Coerce (unsafeCoerce)
+
+lenses :: Array (Lens' Board Space)
+lenses = [ _nw, _n ]
+
+-- lenses = [ _nw, _n, _ne, _w, _c, _e, _sw, _s, _se ]
 
 main :: Effect Unit
 main = do
   void $ runInBody Deku.do
-    _ /\ _ <- useState emptyBoard
+    hook <- useState emptyBoard
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (replicate 9 (space (pure "X")))
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#> lensHook hook >>> spaceDiv)
       ]
 
-space :: Poll String -> Nut
-space s = (D.div [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300" ] [text s])
+type Hook a = Tuple (a -> Effect Unit) (Poll a)
 
-type Lens s a = forall f. Functor f => (a -> f a) -> s -> f s
+lensHook :: forall s a. Hook s -> Lens' s a -> Hook a
+lensHook (_ /\ pollS) l = setA /\ pollA
+  where
+  setA = unsafeCoerce unit
+  pollA = pollS <#> view l
 
-_nw :: Lens Board Space
-_nw f board = (\nw -> board { nw = nw }) <$> f board.nw
+--spaceNut :: (Space -> Effect Unit) -> Poll Space -> Nut
+--spaceNut = unsafeCoerce unit
 
-_n :: Lens Board Space
-_n f board = (\n -> board { n = n }) <$> f board.n
+spaceDiv :: Hook Space -> Nut
+spaceDiv (setSpace /\ space) =
+  ( D.div [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300", DL.click_ \_ -> setSpace (Just Cross) ]
+      [ space <#~> case _ of
+          Just Cross -> text_ "X"
+          Just Nought -> text_ "O"
+          Nothing -> text_ ""
+      ]
+  )
 
-_ne :: Lens Board Space
-_ne f board = (\ne -> board { ne = ne }) <$> f board.ne
+_nw :: Lens' Board Space
+_nw = prop (Proxy :: Proxy "nw")
 
-_w :: Lens Board Space
-_w f board = (\w -> board { w = w }) <$> f board.w
+_n :: Lens' Board Space
+_n = prop (Proxy :: Proxy "n")
 
-_c :: Lens Board Space
-_c f board = (\c -> board { c = c }) <$> f board.c
+_ne :: Lens' Board Space
+_ne = prop (Proxy :: Proxy "ne")
 
-_e :: Lens Board Space
-_e f board = (\e -> board { e = e }) <$> f board.e
+_w :: Lens' Board Space
+_w = prop (Proxy :: Proxy "w")
 
-_sw :: Lens Board Space
-_sw f board = (\sw -> board { sw = sw }) <$> f board.sw
+_c :: Lens' Board Space
+_c = prop (Proxy :: Proxy "c")
 
-_s :: Lens Board Space
-_s f board = (\s -> board { s = s }) <$> f board.s
+_e :: Lens' Board Space
+_e = prop (Proxy :: Proxy "e")
 
-_se :: Lens Board Space
-_se f board = (\se -> board { se = se }) <$> f board.se
+_sw :: Lens' Board Space
+_sw = prop (Proxy :: Proxy "sw")
 
-over :: forall a s. (a -> a) -> Lens s a -> s -> s
-over f l = unwrap <<< (l $ Identity <<< f)
+_s :: Lens' Board Space
+_s = prop (Proxy :: Proxy "s")
 
-view :: forall a s. Lens s a -> s -> a
-view l = unwrap <<< (l Const)
+_se :: Lens' Board Space
+_se = prop (Proxy :: Proxy "se")
 
 data Mark = Nought | Cross
 type Space = Maybe Mark
