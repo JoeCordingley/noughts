@@ -17,45 +17,52 @@ import Deku.Hooks (useState, (<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
 import FRP.Poll (Poll)
-import Data.Lens (Lens', set, view)
+import Data.Lens (Lens', view, _1, over, set, lens)
 import Data.Lens.Record (prop)
 import Type.Proxy (Proxy(..))
-import Unsafe.Coerce (unsafeCoerce)
 
 lenses :: Array (Lens' Board Space)
-lenses = [ _nw, _n ]
-
--- lenses = [ _nw, _n, _ne, _w, _c, _e, _sw, _s, _se ]
+lenses = [ _nw, _n, _ne, _w, _c, _e, _sw, _s, _se ]
 
 main :: Effect Unit
 main = do
   void $ runInBody Deku.do
-    hook <- useState emptyBoard
+    setBoard /\ board <- useState startingGame
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#> lensHook hook >>> spaceDiv)
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#> (\l -> spaceDiv setBoard board (combineLenses (_board <<< l) _turn)))
       ]
+
+combineLenses :: forall s a b. Lens' s a -> Lens' s b -> Lens' s (Tuple a b)
+combineLenses lensA lensB =
+  lens getter (flip setter)
+  where
+  getter s = (view lensA s) /\ (view lensB s)
+  setter (a /\ b) = set lensB b <<< set lensA a
 
 type Hook a = Tuple (a -> Effect Unit) (Poll a)
 
-lensHook :: forall s a. Hook s -> Lens' s a -> Hook a
-lensHook (_ /\ pollS) l = setA /\ pollA
-  where
-  setA = unsafeCoerce unit
-  pollA = pollS <#> view l
-
---spaceNut :: (Space -> Effect Unit) -> Poll Space -> Nut
---spaceNut = unsafeCoerce unit
-
-spaceDiv :: Hook Space -> Nut
-spaceDiv (setSpace /\ space) =
-  ( D.div [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300", DL.click_ \_ -> setSpace (Just Cross) ]
-      [ space <#~> case _ of
+spaceDiv :: forall s. (s -> Effect Unit) -> Poll s -> Lens' s (Tuple Space Mark) -> Nut
+spaceDiv setS poll lens =
+  ( D.div
+      [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
+      , DL.runOn DL.click $ poll <#> (setS <<< f)
+      ]
+      [ poll <#> view (_1 >>> lens) <#~> case _ of
           Just Cross -> text_ "X"
           Just Nought -> text_ "O"
           Nothing -> text_ ""
       ]
   )
+  where
+  f s = over lens g s
+    where
+    g (Nothing /\ Nought) = Just Nought /\ Cross
+    g (Nothing /\ Cross) = Just Cross /\ Nought
+    g (Just mark /\ turn) = Just mark /\ turn
+
+_turn :: Lens' Game Mark
+_turn = prop (Proxy :: Proxy "turn")
 
 _nw :: Lens' Board Space
 _nw = prop (Proxy :: Proxy "nw")
@@ -84,8 +91,16 @@ _s = prop (Proxy :: Proxy "s")
 _se :: Lens' Board Space
 _se = prop (Proxy :: Proxy "se")
 
+_board :: Lens' Game Board
+_board = prop (Proxy :: Proxy "board")
+
 data Mark = Nought | Cross
 type Space = Maybe Mark
+type Game = { turn :: Mark, board :: Board }
+
+startingGame :: Game
+startingGame = { turn: Nought, board: emptyBoard }
+
 type Board =
   { nw :: Space
   , n :: Space
