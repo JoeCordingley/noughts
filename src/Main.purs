@@ -3,9 +3,9 @@ module Main where
 import Prelude
 
 -- import Data.Array (replicate)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Filterable (filter)
 import Data.Tuple.Nested ((/\))
-import Data.Tuple (Tuple)
 import Deku.Control (text_)
 import Deku.Core (Nut)
 import Deku.DOM as D
@@ -17,11 +17,13 @@ import Deku.Hooks (useState, (<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
 import FRP.Poll (Poll)
-import Data.Lens (Lens', view, _1, over, set, lens)
+import Data.Lens (Lens', traverseOf, view)
 import Data.Lens.Record (prop)
 import Type.Proxy (Proxy(..))
+import Data.Monoid.Disj (Disj(..))
+-- import Unsafe.Coerce (unsafeCoerce)
 
-lenses :: Array (Lens' Board Space)
+lenses :: Array BoardLens
 lenses = [ _nw, _n, _ne, _w, _c, _e, _sw, _s, _se ]
 
 main :: Effect Unit
@@ -30,90 +32,116 @@ main = do
     setBoard /\ board <- useState startingGame
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#> (\l -> spaceDiv setBoard board (combineLenses (_board <<< l) _turn)))
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#> spaceDiv setBoard board)
       ]
 
-combineLenses :: forall s a b. Lens' s a -> Lens' s b -> Lens' s (Tuple a b)
-combineLenses lensA lensB =
-  lens getter (flip setter)
-  where
-  getter s = (view lensA s) /\ (view lensB s)
-  setter (a /\ b) = set lensB b <<< set lensA a
+type BoardLens = forall a. Lens' (Board a) a 
 
-type Hook a = Tuple (a -> Effect Unit) (Poll a)
+winningSquare :: BoardLens -> Status -> Boolean
+winningSquare l = case _ of 
+  Finished board -> (getDisj <<< view l) board
+  _ -> false
 
-spaceDiv :: forall s. (s -> Effect Unit) -> Poll s -> Lens' s (Tuple Space Mark) -> Nut
-spaceDiv setS poll lens =
+spaceDiv :: (Game -> Effect Unit) -> Poll Game -> BoardLens -> Nut
+spaceDiv setS poll lens = 
   ( D.div
       [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
       , DL.runOn DL.click $ poll <#> (setS <<< f)
+      , DA.style $ filter identity w $> "color:red"
+      , DA.unset @"style" $ filter not w
       ]
-      [ poll <#> view (_1 >>> lens) <#~> case _ of
+      [ poll <#~> \{board} -> case view lens board of
           Just Cross -> text_ "X"
           Just Nought -> text_ "O"
-          Nothing -> text_ ""
+          Nothing -> text_ "-"
       ]
   )
   where
-  f s = over lens g s
-    where
-    g (Nothing /\ Nought) = Just Nought /\ Cross
-    g (Nothing /\ Cross) = Just Cross /\ Nought
-    g (Just mark /\ turn) = Just mark /\ turn
+  f game = fromMaybe game $ updateBoard lens game 
+  w = poll <#> \{status} -> winningSquare lens status
 
-_turn :: Lens' Game Mark
-_turn = prop (Proxy :: Proxy "turn")
 
-_nw :: Lens' Board Space
+getDisj :: Disj Boolean -> Boolean
+getDisj (Disj b) = b
+
+updateBoard :: BoardLens -> Game -> Maybe Game
+updateBoard lens {board, status} = case status of
+  Playing turn -> traverseOf lens playTurn board <#> nextTurn where
+    playTurn Nothing = Just (Just turn)
+    playTurn _ = Nothing
+    nextTurn newBoard = {status: newStatus, board: newBoard} where
+      newStatus = case wonBoard board of
+        Just won -> Finished won
+        Nothing -> Playing $ case turn of
+          Nought -> Cross
+          Cross -> Nought
+  _ -> Nothing
+
+wonBoard :: Board Space -> Maybe (Board (Disj Boolean))
+wonBoard _ = Nothing
+
+lines :: Array (Array BoardLens)
+lines = 
+  [[_nw, _n, _ne]
+  ,[_w, _c, _e]
+  ,[_sw, _s, _se]
+  ,[_nw, _w, _sw]
+  ,[_n, _c, _s]
+  ,[_ne, _c, _se]
+  ,[_nw, _c, _se]
+  ,[_ne, _c, _sw]
+  ]
+
+_nw :: BoardLens
 _nw = prop (Proxy :: Proxy "nw")
 
-_n :: Lens' Board Space
+_n :: BoardLens
 _n = prop (Proxy :: Proxy "n")
 
-_ne :: Lens' Board Space
+_ne :: BoardLens
 _ne = prop (Proxy :: Proxy "ne")
 
-_w :: Lens' Board Space
+_w :: BoardLens
 _w = prop (Proxy :: Proxy "w")
 
-_c :: Lens' Board Space
+_c :: BoardLens
 _c = prop (Proxy :: Proxy "c")
 
-_e :: Lens' Board Space
+_e :: BoardLens
 _e = prop (Proxy :: Proxy "e")
 
-_sw :: Lens' Board Space
+_sw :: BoardLens
 _sw = prop (Proxy :: Proxy "sw")
 
-_s :: Lens' Board Space
+_s :: BoardLens
 _s = prop (Proxy :: Proxy "s")
 
-_se :: Lens' Board Space
+_se :: BoardLens
 _se = prop (Proxy :: Proxy "se")
-
-_board :: Lens' Game Board
-_board = prop (Proxy :: Proxy "board")
 
 data Mark = Nought | Cross
 type Space = Maybe Mark
-type Game = { turn :: Mark, board :: Board }
+
+type Game = { status :: Status, board :: Board Space }
 
 startingGame :: Game
-startingGame = { turn: Nought, board: emptyBoard }
+startingGame = { status: Playing Nought , board: emptyBoard }
 
-type Board =
-  { nw :: Space
-  , n :: Space
-  , ne :: Space
-  , w :: Space
-  , c :: Space
-  , e :: Space
-  , sw :: Space
-  , s :: Space
-  , se :: Space
+data Status = Finished (Board (Disj Boolean)) | Playing Mark
+
+type Board a =
+  { nw :: a
+  , n :: a
+  , ne :: a
+  , w :: a
+  , c :: a
+  , e :: a
+  , sw :: a
+  , s :: a
+  , se :: a
   }
 
-emptyBoard :: Board
+emptyBoard :: Board Space
 emptyBoard =
   { nw: Nothing
   , n: Nothing
