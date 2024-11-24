@@ -36,6 +36,7 @@ library
   build-depends:
       base >=4.7 && <5
     , containers
+    , mtl
     , servant
     , servant-server
     , servant-websockets
@@ -56,6 +57,7 @@ executable noughts-exe
   build-depends:
       base >=4.7 && <5
     , containers
+    , mtl
     , noughts
     , servant
     , servant-server
@@ -78,6 +80,7 @@ test-suite noughts-test
   build-depends:
       base >=4.7 && <5
     , containers
+    , mtl
     , noughts
     , servant
     , servant-server

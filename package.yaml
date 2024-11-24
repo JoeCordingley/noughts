@@ -28,6 +28,7 @@ dependencies:
 - containers
 - wai
 - warp
+- mtl
 
 ghc-options:
 - -Wall
