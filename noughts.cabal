@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Websockets
   other-modules:
       Paths_noughts
   autogen-modules:
@@ -35,6 +35,13 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+    , containers
+    , servant
+    , servant-server
+    , servant-websockets
+    , wai
+    , warp
+    , websockets
   default-language: Haskell2010
 
 executable noughts-exe
@@ -48,7 +55,14 @@ executable noughts-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , containers
     , noughts
+    , servant
+    , servant-server
+    , servant-websockets
+    , wai
+    , warp
+    , websockets
   default-language: Haskell2010
 
 test-suite noughts-test
@@ -63,5 +77,12 @@ test-suite noughts-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , containers
     , noughts
+    , servant
+    , servant-server
+    , servant-websockets
+    , wai
+    , warp
+    , websockets
   default-language: Haskell2010
