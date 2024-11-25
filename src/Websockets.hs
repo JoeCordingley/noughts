@@ -27,6 +27,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Network.Wai.Handler.Warp (run)
 
 import Control.Monad ((<=<))
+import Control.Monad.State (MonadState, StateT (..), evalStateT, state)
 
 startApp :: IO ()
 startApp = do
@@ -37,25 +38,66 @@ startApp = do
 
 hostGame :: Seats -> IO ()
 hostGame seats = do
-    players <- waitForPlayers seats
-    playGames players
+    connections <- waitForConnections seats
+    playGames $ StateT . (playMove . getPlay $ getMove connections)
 
-data Game
-type Players f = Player -> Game -> f Game
+getPlay :: Monad f => GetMove f -> GetPlay f
+getPlay getMove player game = repeatUntilValid $ fmap applyMove $ getMove player game
+  where
+    applyMove move = undefined
 
-waitForPlayers :: Seats -> f (Players f)
-waitForPlayers = undefined
+getMove :: Connections -> GetMove f
+getMove = undefined
 
-playGames :: Applicative f => Players f -> f ()
-playGames players = playGame players *> playGames players
+data CompletionStatus = Finished | Playing
+type PlayMove f = Player -> f CompletionStatus
+data Move
 
-playGame :: Players f -> f ()
-playGame players = undefined
+type Seats = Player -> MVar Connection
+type Connections = Player -> Connection
+type GetPlay f = Player -> Game -> f Game
+type GetMove f = Player -> Game -> f Move
+
+waitForConnections :: Seats -> f Connections
+waitForConnections = undefined
+
+playMove :: Monad f => GetPlay f -> Player -> Game -> f (CompletionStatus, Game)
+playMove receiveMove player game = do
+    newGame <- receiveMove player game
+    return (completionStatus newGame, newGame)
+
+repeatUntilValid :: Monad f => f (Maybe a) -> f a
+repeatUntilValid fa = do
+    maybeA <- fa
+    case maybeA of
+        Just a -> return a
+        Nothing -> repeatUntilValid fa
+
+completionStatus :: Game -> CompletionStatus
+completionStatus FinishedGame = Finished
+completionStatus PlayingGame = Playing
+
+data Game = FinishedGame | PlayingGame
+
+startingGame :: Game
+startingGame = undefined
+
+playGames :: Monad f => PlayMove (StateT Game f) -> f ()
+playGames playMove = evalStateT (playGame playMove) startingGame *> playGames playMove
+
+playGame :: Monad f => PlayMove f -> f ()
+playGame playMove = play Nought
+  where
+    play player = do
+        game <- playMove player
+        case game of
+            Finished -> return ()
+            Playing -> play (nextPlayer player)
+    nextPlayer Nought = Cross
+    nextPlayer Cross = Nought
 
 app :: Seats -> Application
 app state = serve api (server state)
-
-type Seats = Player -> MVar Connection
 
 data Player = Nought | Cross
 
@@ -75,10 +117,10 @@ playerRoute player seats conn = keepAlive conn communication
 initialState :: IO Seats
 initialState = f <$> newEmptyMVar <*> newEmptyMVar
   where
-    f = firstSecond Nought Cross
-
-firstSecond :: a -> a -> b -> b -> a -> b
-firstSecond = undefined
+    f first second = g
+      where
+        g Nought = first
+        g Cross = second
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
