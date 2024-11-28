@@ -14,11 +14,12 @@ import Control.Concurrent
     newEmptyMVar,
     putMVar,
   )
-import Control.Monad ((<=<))
+import Control.Monad (liftM, (<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.State (StateT (..), evalStateT)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (StateT (..), evalStateT, gets, modifyM)
 import Game
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets
@@ -61,10 +62,15 @@ type GetMove f = Player -> Game -> f Move
 waitForConnections :: Seats -> f Connections
 waitForConnections = undefined
 
-moveAndUpdate :: (Monad f) => GetPlay f -> Player -> StateT Game f CompletionStatus
-moveAndUpdate receiveMove player = StateT $ fmap f . receiveMove player
-  where
-    f game = (completionStatus game, game)
+moveAndUpdate :: (MonadIO f) => (GameStatus -> f ()) -> GetPlay f -> Player -> StateT Game f GameStatus
+moveAndUpdate update receiveMove player = do
+  modifyM (receiveMove player)
+  status <- gets (gameStatus player)
+  lift $ update status
+  return status
+
+updatePlayers :: (MonadIO f) => Connections -> GameStatus -> f ()
+updatePlayers = undefined
 
 repeatUntilValid :: (Monad f) => f (Maybe a) -> f a
 repeatUntilValid fa = do
@@ -73,13 +79,14 @@ repeatUntilValid fa = do
     Just a -> return a
     Nothing -> repeatUntilValid fa
 
-completionStatus :: Game -> CompletionStatus
-completionStatus _ = Finished
+completionStatus :: GameStatus -> CompletionStatus
+completionStatus (Right _) = Finished
+completionStatus (Left _) = Playing
 
 hostGame :: Seats -> IO ()
 hostGame seats = do
   connections <- waitForConnections seats
-  playGames $ moveAndUpdate . getPlay $ getMove connections
+  playGames $ fmap completionStatus . (moveAndUpdate (updatePlayers connections) . getPlay $ getMove connections)
 
 playGames :: (Monad f) => PlayMove (StateT Game f) -> f ()
 playGames playMove = evalStateT (playGame playMove) startingGame *> playGames playMove
