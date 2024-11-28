@@ -1,105 +1,100 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Websockets (
-    startApp,
-) where
+module Websockets
+  ( startApp,
+  )
+where
 
-import Network.WebSockets (
-    Connection,
-    withPingThread,
- )
-import Servant
-import Servant.API.WebSocket (WebSocket)
-import Servant.Server (ServerError)
-
-import Control.Concurrent (
-    MVar,
+import Control.Concurrent
+  ( MVar,
     forkIO,
     newEmptyMVar,
-    newMVar,
     putMVar,
- )
+  )
+import Control.Monad ((<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.State (StateT (..), evalStateT)
+import Game
 import Network.Wai.Handler.Warp (run)
-
-import Control.Monad ((<=<))
-import Control.Monad.State (MonadState, StateT (..), evalStateT, state)
+import Network.WebSockets
+  ( Connection,
+    withPingThread,
+  )
+import Servant
+import Servant.API.WebSocket (WebSocket)
 
 startApp :: IO ()
 startApp = do
-    state <- initialState
-    forkIO $ hostGame state
-    putStrLn "Starting server on http://localhost:8080"
-    run 8080 (app state)
+  state <- initialState
+  _ <- forkIO $ hostGame state
+  putStrLn "Starting server on http://localhost:8080"
+  run 8080 (app state)
 
-hostGame :: Seats -> IO ()
-hostGame seats = do
-    connections <- waitForConnections seats
-    playGames $ StateT . (playMove . getPlay $ getMove connections)
-
-getPlay :: Monad f => GetMove f -> GetPlay f
+getPlay :: (Monad f) => GetMove f -> GetPlay f
 getPlay getMove player game = repeatUntilValid $ fmap applyMove $ getMove player game
   where
-    applyMove move = undefined
+    applyMove move = boardLens move f game
+      where
+        f Nothing = Just $ Just player
+        f _ = Nothing
 
 getMove :: Connections -> GetMove f
 getMove = undefined
 
 data CompletionStatus = Finished | Playing
+
 type PlayMove f = Player -> f CompletionStatus
-data Move
 
 type Seats = Player -> MVar Connection
+
 type Connections = Player -> Connection
+
 type GetPlay f = Player -> Game -> f Game
+
 type GetMove f = Player -> Game -> f Move
 
 waitForConnections :: Seats -> f Connections
 waitForConnections = undefined
 
-playMove :: Monad f => GetPlay f -> Player -> Game -> f (CompletionStatus, Game)
-playMove receiveMove player game = do
-    newGame <- receiveMove player game
-    return (completionStatus newGame, newGame)
+moveAndUpdate :: (Monad f) => GetPlay f -> Player -> StateT Game f CompletionStatus
+moveAndUpdate receiveMove player = StateT $ fmap f . receiveMove player
+  where
+    f game = (completionStatus game, game)
 
-repeatUntilValid :: Monad f => f (Maybe a) -> f a
+repeatUntilValid :: (Monad f) => f (Maybe a) -> f a
 repeatUntilValid fa = do
-    maybeA <- fa
-    case maybeA of
-        Just a -> return a
-        Nothing -> repeatUntilValid fa
+  maybeA <- fa
+  case maybeA of
+    Just a -> return a
+    Nothing -> repeatUntilValid fa
 
 completionStatus :: Game -> CompletionStatus
-completionStatus FinishedGame = Finished
-completionStatus PlayingGame = Playing
+completionStatus _ = Finished
 
-data Game = FinishedGame | PlayingGame
+hostGame :: Seats -> IO ()
+hostGame seats = do
+  connections <- waitForConnections seats
+  playGames $ moveAndUpdate . getPlay $ getMove connections
 
-startingGame :: Game
-startingGame = undefined
-
-playGames :: Monad f => PlayMove (StateT Game f) -> f ()
+playGames :: (Monad f) => PlayMove (StateT Game f) -> f ()
 playGames playMove = evalStateT (playGame playMove) startingGame *> playGames playMove
 
-playGame :: Monad f => PlayMove f -> f ()
+playGame :: (Monad f) => PlayMove f -> f ()
 playGame playMove = play Nought
   where
     play player = do
-        game <- playMove player
-        case game of
-            Finished -> return ()
-            Playing -> play (nextPlayer player)
-    nextPlayer Nought = Cross
-    nextPlayer Cross = Nought
+      game <- playMove player
+      case game of
+        Finished -> return ()
+        Playing -> play (nextPlayer player)
 
 app :: Seats -> Application
-app state = serve api (server state)
-
-data Player = Nought | Cross
+app seats = serve api (server seats)
 
 api :: Proxy WebSocketApi
 api = Proxy
@@ -124,4 +119,4 @@ initialState = f <$> newEmptyMVar <*> newEmptyMVar
 
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
-    liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT
+  liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT

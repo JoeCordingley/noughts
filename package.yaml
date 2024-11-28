@@ -29,6 +29,7 @@ dependencies:
 - wai
 - warp
 - mtl
+- lens
 
 ghc-options:
 - -Wall
