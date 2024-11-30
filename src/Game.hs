@@ -14,15 +14,15 @@ module Game (
 where
 
 import Control.Lens
-import Data.Semigroup (Any (..))
+import Data.Semigroup (Any (..), Endo (..))
 
-data Player = Nought | Cross deriving (Eq)
+data Player = Nought | Cross deriving (Eq, Show)
 
 type Game = Board (Maybe Player)
 
 type BoardLens a = Lens' (Board a) a
 
-data Board a = Board {_t :: Line a, _m :: Line a, _b :: Line a}
+data Board a = Board {_t :: Line a, _m :: Line a, _b :: Line a} deriving (Show)
 
 instance Functor Board where
     fmap f (Board x y z) = Board (fmap f x) (fmap f y) (fmap f z)
@@ -34,7 +34,7 @@ instance Applicative Board where
 instance Semigroup a => Semigroup (Board a) where
     Board x1 y1 z1 <> Board x2 y2 z2 = Board (x1 <> x2) (y1 <> y2) (z1 <> z2)
 
-data Line a = Line {_l :: a, _c :: a, _r :: a}
+data Line a = Line {_l :: a, _c :: a, _r :: a} deriving (Show)
 
 instance Functor Line where
     fmap f (Line x y z) = Line (f x) (f y) (f z)
@@ -83,9 +83,13 @@ type GameStatus = Either FinishedGame Game
 
 type FinishedGame = Board FinishedSquare
 
-data FinishedSquare = FinishedSquare Bool (Maybe Player)
+data FinishedSquare = FinishedSquare Bool (Maybe Player) deriving (Show)
 
-type WinningSquares = Board Bool
+type WinningSquares = MarkedSquares
+type MarkedSquares = Board Bool
+
+noneMarked :: MarkedSquares
+noneMarked = pure False
 
 gameStatus :: Player -> Game -> GameStatus
 gameStatus player game = case wonGame of
@@ -95,14 +99,14 @@ gameStatus player game = case wonGame of
     wonGame :: Maybe WinningSquares
     wonGame =
         fmap2 getAny $
-            foldMap (fmap2 Any . tryLine) winningLines
+            foldMap (fmap2 Any . winningLine) winningLines
       where
         fmap2 = fmap . fmap
-        tryLine :: [Move] -> Maybe WinningSquares
-        tryLine = foldr ((=<<) . applyMove) (Just $ pure False)
+        winningLine :: [Move] -> Maybe WinningSquares
+        winningLine = fmap ((&) noneMarked . appEndo) . foldMap (fmap Endo . setMarked)
           where
-            applyMove :: Move -> WinningSquares -> Maybe WinningSquares
-            applyMove move wonBoard =
+            setMarked :: Move -> Maybe (MarkedSquares -> MarkedSquares)
+            setMarked move =
                 if view (boardLens move) game == Just player
-                    then Just $ set (boardLens move) True wonBoard
+                    then Just $ set (boardLens move) True
                     else Nothing
