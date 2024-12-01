@@ -1,5 +1,8 @@
 module Game (
     CompletionStatus (..),
+    playGame,
+    Players (..),
+    PlayMove,
 )
 where
 

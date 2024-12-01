@@ -14,42 +14,24 @@ where
 import Control.Concurrent (
     MVar,
     forkIO,
-    newEmptyMVar,
     putMVar,
  )
-import Control.Monad (liftM, (<=<))
+import Control.Monad ((<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT (..), evalStateT, gets, modifyM)
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets (
     Connection,
     withPingThread,
  )
 import Servant
-import Servant.API.WebSocket (WebSocket)
 
-startApp :: (Seats player -> Application) -> (Connections player -> IO ()) -> IO ()
-startApp app playGame = do
-    state <- initialState
+startApp :: MonadIO f => Seats player -> (Seats player -> Application) -> (Connections player -> IO ()) -> f ()
+startApp state app playGame = liftIO $ do
     _ <- forkIO $ hostGames state playGame
     putStrLn "Starting server on http://localhost:8080"
     run 8080 (app state)
-
-initialState :: MonadIO f => f (Seats player)
-initialState = undefined
-
--- initialState = f <$> newEmptyMVar <*> newEmptyMVar
---  where
---    f first second = g
---      where
---        g Nought = first
---        g Cross = second
-
--- getMove :: Connections -> GetMove f
--- getMove = undefined
 
 type Seats player = player -> MVar Connection
 

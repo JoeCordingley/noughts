@@ -26,8 +26,10 @@ source-repository head
 library
   exposed-modules:
       Game
-      Noughts
+      Game.Noughts
+      Json
       Websockets
+      Websockets.Noughts
   other-modules:
       Paths_noughts
   autogen-modules:
@@ -36,7 +38,8 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , containers
     , lens
     , mtl
@@ -59,7 +62,8 @@ executable noughts-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , containers
     , lens
     , mtl
@@ -84,7 +88,8 @@ test-suite noughts-test
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , containers
     , lens
     , mtl
