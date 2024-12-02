@@ -47,6 +47,7 @@ library
     , servant-server
     , servant-websockets
     , transformers
+    , utf8-string
     , wai
     , warp
     , websockets
@@ -72,6 +73,7 @@ executable noughts-exe
     , servant-server
     , servant-websockets
     , transformers
+    , utf8-string
     , wai
     , warp
     , websockets
@@ -98,6 +100,7 @@ test-suite noughts-test
     , servant-server
     , servant-websockets
     , transformers
+    , utf8-string
     , wai
     , warp
     , websockets

@@ -8,6 +8,8 @@ module Websockets (
     Seats,
     playerRoute,
     Connections,
+    sendJSON,
+    receiveJSON,
 )
 where
 
@@ -20,11 +22,14 @@ import Control.Monad ((<=<))
 import Control.Monad.Error.Class (MonadError, liftEither)
 import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Aeson
+import qualified Data.ByteString.Lazy.UTF8 as B
 import Network.Wai.Handler.Warp (run)
 import Network.WebSockets (
     Connection,
     withPingThread,
  )
+import Network.WebSockets.Connection (receiveData, sendTextData)
 import Servant
 
 startApp :: MonadIO f => Seats player -> (Seats player -> Application) -> (Connections player -> IO ()) -> f ()
@@ -62,3 +67,14 @@ playerRoute player seats conn = keepAlive conn communication
 keepAlive :: (MonadError e m, MonadIO m) => Connection -> ExceptT e IO c -> m c
 keepAlive conn =
     liftEither <=< liftIO . withPingThread conn 30 (pure ()) . runExceptT
+
+sendJSON :: (ToJSON a, MonadIO m) => Connection -> a -> m ()
+sendJSON conn a = liftIO $ sendTextData conn (encode a)
+
+receiveJSON ::
+    (MonadIO m, MonadError ServerError m, FromJSON a) => Connection -> m a
+receiveJSON = stringError . eitherDecode <=< liftIO . receiveData
+
+stringError :: (MonadError ServerError m) => Either String a -> m a
+stringError (Left s) = throwError err400{errBody = B.fromString s}
+stringError (Right a) = pure a
