@@ -27,7 +27,6 @@ library
   exposed-modules:
       Game
       Game.Noughts
-      Json
       Websockets
       Websockets.Noughts
   other-modules:
