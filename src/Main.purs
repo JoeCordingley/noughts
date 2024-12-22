@@ -2,54 +2,86 @@ module Main where
 
 import Prelude
 
-import Data.Lens (Lens', traverseOf, view)
+import Control.Alternative ((<|>))
+import Data.Argonaut.Core (Json)
+import Data.Argonaut.Core as Json
+import Data.Argonaut.Encode (class EncodeJson, encodeJson)
+import Data.Lens (Lens')
 import Data.Lens.Record (prop)
 import Data.Maybe (Maybe(..))
 import Data.Monoid.Disj (Disj(..))
-import Data.Tuple.Nested ((/\))
 import Deku.Control (text_)
 import Deku.Core (Nut)
 import Deku.DOM as D
 import Deku.DOM.Attributes as DA
-import Deku.Do as Deku
-import Deku.Hooks (useState, (<#~>))
+import Deku.Hooks ((<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
 import FRP.Poll (Poll)
-import FRP.Event (Event)
+import Routing.Hash (matches)
+import Routing.Match (Match, lit)
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
+import Web.Socket.WebSocket (WebSocket)
+import Web.Socket.WebSocket as WS
 
 -- import Unsafe.Coerce (unsafeCoerce)
 
-lenses :: Array BoardLens
-lenses = [ _nw, _n, _ne, _w, _c, _e, _sw, _s, _se ]
+data Move = NW | N | NE | W | C | E | SW | S | SE 
+
+moves :: Array Move
+moves = [NW , N , NE , W , C , E , SW , S , SE ] 
+
+instance showMove :: Show Move where
+  show NW = "NW"
+  show N = "N"
+  show NE = "NE"
+  show W = "W"
+  show C = "C"
+  show E = "E"
+  show SW = "SW"
+  show S = "S"
+  show SE = "SE"
+
+instance encodeMove :: EncodeJson Move where
+  encodeJson = Json.fromString <<< show
+
+moveLens :: Move -> BoardLens
+moveLens = unsafeCoerce unit
+
+data NoughtsRoute = NoughtRoute | CrossRoute
+
+noughtsRoute :: Match NoughtsRoute
+noughtsRoute = (NoughtRoute <$ lit "o") <|> (CrossRoute <$ lit "x")
 
 main :: Effect Unit
-main = do
+main = do 
+  u <- matches noughtsRoute \_ newRoute -> case newRoute of
+    NoughtRoute -> play Nought
+    CrossRoute -> play Cross
+  u
+
+play :: Mark -> Effect Unit
+play mark = do
+  conn <- WS.create ("http://localhost:8080" <> case mark of
+    Nought -> "/join/O" 
+    Cross -> "/join/X") []
   void $ runInBody Deku.do
-    setGame /\ game <- useState startingGame
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (lenses <#>(\l -> squareDiv (setSquare l setGame) (pollSquare l game)))
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (moves <#> \move -> squareDiv (setSquare move conn) (pollSquare move conn))
       ]
 
-eventToPoll :: forall a. Event a -> Poll a
-eventToPoll = flap
+sendJSON :: WebSocket -> Json -> Effect Unit
+sendJSON = unsafeCoerce unit
 
+setSquare :: Move -> WebSocket -> Effect Unit
+setSquare move conn = sendJSON conn $ encodeJson move
 
-setSquare :: BoardLens -> (Game -> Effect Unit) -> Effect Unit
-setSquare = unsafeCoerce unit
-
-pollSquare :: BoardLens -> Poll Game -> Poll Square
+pollSquare :: Move -> WebSocket -> Poll Square
 pollSquare = unsafeCoerce unit
 
 type BoardLens = forall a. Lens' (Board a) a 
-
-winningSquare :: BoardLens -> Status -> Boolean
-winningSquare l = case _ of 
-  Finished board -> (getDisj <<< view l) board
-  _ -> false
 
 type Square = {mark :: Maybe Mark, yourTurn :: Boolean}
 
@@ -80,22 +112,6 @@ squareDiv _ poll = poll <#~> case _ of
 
 getDisj :: Disj Boolean -> Boolean
 getDisj (Disj b) = b
-
-updateBoard :: BoardLens -> Game -> Maybe Game
-updateBoard lens {board, status} = case status of
-  Playing turn -> traverseOf lens playTurn board <#> nextTurn where
-    playTurn Nothing = Just (Just turn)
-    playTurn _ = Nothing
-    nextTurn newBoard = {status: newStatus, board: newBoard} where
-      newStatus = case wonBoard board of
-        Just won -> Finished won
-        Nothing -> Playing $ case turn of
-          Nought -> Cross
-          Cross -> Nought
-  _ -> Nothing
-
-wonBoard :: Board Space -> Maybe (Board (Disj Boolean))
-wonBoard _ = Nothing
 
 
 _nw :: BoardLens

@@ -1,6 +1,8 @@
 package:
   name: noughts
   dependencies:
+    - argonaut-codecs
+    - argonaut-core
     - console
     - deku-core
     - deku-css
@@ -8,6 +10,8 @@ package:
     - effect
     - prelude
     - profunctor-lenses
+    - routing
+    - web-socket
   test:
     main: Test.Main
     dependencies: []
