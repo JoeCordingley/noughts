@@ -3,6 +3,7 @@ module Main where
 import Prelude
 
 import Control.Alternative ((<|>))
+import Control.Monad.ST.Class (liftST)
 import Data.Argonaut.Core (Json)
 import Data.Argonaut.Core as Json
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
@@ -17,11 +18,15 @@ import Deku.DOM.Attributes as DA
 import Deku.Hooks ((<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
-import FRP.Poll (Poll)
+import FRP.Event (Event, create)
+import FRP.Poll (Poll, sham)
 import Routing.Hash (matches)
 import Routing.Match (Match, lit)
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
+import Web.Event.EventTarget (EventListener)
+import Web.Event.EventTarget as EET
+import Web.Socket.Event.EventTypes as WSET
 import Web.Socket.WebSocket (WebSocket)
 import Web.Socket.WebSocket as WS
 
@@ -66,11 +71,22 @@ play mark = do
   conn <- WS.create ("http://localhost:8080" <> case mark of
     Nought -> "/join/O" 
     Cross -> "/join/X") []
+  { push, event } <- liftST create
+  let _ = pollGame event
+  EET.addEventListener WSET.onMessage (listener push) false (WS.toEventTarget conn)
   void $ runInBody Deku.do
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
       , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (moves <#> \move -> squareDiv (setSquare move conn) (pollSquare move conn))
       ]
+
+listener :: (Game -> Effect Unit) -> EventListener
+listener _ = unsafeCoerce unit
+
+pollGame :: Event Game -> Poll Game
+pollGame = sham
+
+
 
 sendJSON :: WebSocket -> Json -> Effect Unit
 sendJSON = unsafeCoerce unit
