@@ -1,33 +1,35 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Websockets.Noughts (app, playNoughts, initialState) where
+module Websockets.Noughts (app, playNoughts, seats) where
 
 import Control.Concurrent (newEmptyMVar)
 import Control.Monad ((<=<))
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.Aeson (ToJSON)
-import qualified Data.Map as Map
+import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson.Key (fromString)
+import Data.Map ((!))
 import GHC.Generics (Generic)
+import qualified Data.Map as Map
 import Game.Noughts
 import Servant
 import Servant.API.WebSocket (WebSocket)
 import Websockets
 
 playNoughts :: Connections Player -> IO ()
-playNoughts connections = play $ updateAll connections <=< moveStateful getPlay
+playNoughts connections = updateAll connections initialStatus *> (play $ updateAll connections <=< moveStateful getPlay)
   where
     getPlay player game = repeatUntilValid $ fmap (applyMove player game) $ getMove connections player game
 
 getMove :: Connections Player -> GetMove IO
 getMove connections player _ = do
-  sendJSON conn YourMove
-  receiveJSONOrFail conn
+  receiveJSONOrRetry conn
   where
-    conn = connections player
+    conn = connections ! player
 
 type WebSocketApi = ("join" :> "O" :> WebSocket) :<|> ("join" :> "X" :> WebSocket)
 
@@ -35,30 +37,36 @@ api :: Proxy WebSocketApi
 api = Proxy
 
 server :: Seats Player -> Server WebSocketApi
-server seats = playerRoute Nought seats :<|> playerRoute Cross seats
+server seats = playerRoute O seats :<|> playerRoute X seats
 
 app :: Seats Player -> Application
 app seats = serve api (server seats)
 
-repeatUntilValid :: (Monad f) => f (Maybe a) -> f a
-repeatUntilValid fa = do
-  maybeA <- fa
-  case maybeA of
-    Just a -> return a
-    Nothing -> repeatUntilValid fa
-
-initialState :: (MonadIO f) => f (Seats Player)
-initialState = liftIO $ f <$> newEmptyMVar <*> liftIO newEmptyMVar
+seats :: (MonadIO f) => f (Seats Player)
+seats = liftIO $ f <$> newEmptyMVar <*> liftIO newEmptyMVar
   where
-    f first second = Map.fromList [(Nought, first), (Cross, second)]
+    f first second = Map.fromList [(O, first), (X, second)]
 
 updateAll :: (MonadIO f) => Connections Player -> GameStatus -> f GameStatus
-updateAll connections status = status <$ traverse updateEach [Nought, Cross]
+updateAll connections status = status <$ traverse updateEach [O, X]
   where
-    updateEach player = update (connections player)
-      where
-        update connection = sendJSON connection $ status
+    updateEach player = sendJSON (connections ! player) $ updateStatus player status
 
-data MoveRequest = YourMove deriving (Generic)
+type IndexedSquare a = (Move, a)
 
-instance ToJSON MoveRequest
+withIndex :: [a] -> [IndexedSquare a]
+withIndex = zip moves
+
+data UpdateStatus = WonStatus [FinishedSquare] | Continuing [Maybe Player] Bool | DrawnStatus [Maybe Player] 
+
+instance ToJSON UpdateStatus where
+  toJSON = \case
+    WonStatus squares -> object [fromString "won" .= withIndex squares]
+    Continuing board currentPlayer -> object [fromString "board" .= withIndex board, fromString "currentPlayer" .= currentPlayer]
+    DrawnStatus board -> object [fromString "drawn" .= withIndex board]
+
+updateStatus :: Player -> GameStatus -> UpdateStatus
+updateStatus player = \case
+  WonGame squares -> WonStatus squares
+  DrawnGame board -> DrawnStatus $ board
+  ContinuingGame board currentPlayer -> Continuing board (player == currentPlayer)

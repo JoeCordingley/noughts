@@ -10,4 +10,5 @@ generated-docs/
 .psa*
 .spago
 .stack-work/
+.next/
 *~

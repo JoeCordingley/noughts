@@ -5,7 +5,7 @@
 module Game.Noughts
   ( Player (..),
     Game,
-    GameStatus,
+    GameStatus (..),
     gameStatus,
     nextPlayer,
     startingGame,
@@ -16,6 +16,9 @@ module Game.Noughts
     GetMove,
     applyMove,
     Board (..),
+    initialStatus,
+    FinishedSquare (..),
+    moves
   )
 where
 
@@ -28,7 +31,7 @@ import Data.Monoid (Any (..), Ap (..), Endo (..))
 import GHC.Generics (Generic)
 import Game (CompletionStatus (..), Players (..), playGame)
 
-data Player = Nought | Cross deriving (Eq, Show, Generic, Ord)
+data Player = O | X deriving (Generic, Show, Eq, Ord)
 
 instance ToJSON Player
 
@@ -89,9 +92,9 @@ winningLines =
   ]
 
 instance Players Player where
-  nextPlayer Nought = Cross
-  nextPlayer Cross = Nought
-  firstPlayer = Nought
+  nextPlayer O = X
+  nextPlayer X = O
+  firstPlayer = O
 
 data Move = NW | N | NE | W | C | E | SW | S | SE deriving (Generic, Show)
 
@@ -114,18 +117,11 @@ boardLens move = case move of
   S -> b . c
   SE -> b . r
 
-type ListGame = ListBoard (Maybe Player)
-
-data GameStatus = WonGame (ListBoard FinishedSquare) | ContinuingGame ListGame | DrawnGame ListGame deriving (Generic, Show)
+data GameStatus = WonGame [FinishedSquare] | ContinuingGame [Maybe Player]Player | DrawnGame [Maybe Player] deriving (Generic, Show)
 
 instance ToJSON GameStatus
 
 data FinishedSquare = FinishedSquare Bool (Maybe Player) deriving (Show, Generic)
-
-type ListBoard a = [(Move, a)]
-
-toListBoard :: Board a -> ListBoard a
-toListBoard = zip moves . toList
 
 instance ToJSON FinishedSquare
 
@@ -136,10 +132,13 @@ type MarkedSquares = Board Bool
 noneMarked :: MarkedSquares
 noneMarked = pure False
 
+initialStatus :: GameStatus
+initialStatus = ContinuingGame (toList startingGame) O
+
 gameStatus :: Player -> Game -> GameStatus
 gameStatus player game = case wonGame of
-  Just winningSquares -> WonGame $ toListBoard $ FinishedSquare <$> winningSquares <*> game
-  Nothing -> if full then DrawnGame (toListBoard game) else ContinuingGame (toListBoard game)
+  Just winningSquares -> WonGame $ toList $ FinishedSquare <$> winningSquares <*> game
+  Nothing -> if full then DrawnGame (toList game) else ContinuingGame (toList game) (nextPlayer player)
   where
     wonGame :: Maybe WinningSquares
     wonGame =
@@ -160,7 +159,7 @@ gameStatus player game = case wonGame of
 completionStatus :: GameStatus -> CompletionStatus
 completionStatus (WonGame _) = Finished
 completionStatus (DrawnGame _) = Finished
-completionStatus (ContinuingGame _) = Playing
+completionStatus (ContinuingGame _ _) = Playing
 
 type GetMove f = Player -> Game -> f Move
 

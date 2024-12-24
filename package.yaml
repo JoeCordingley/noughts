@@ -33,6 +33,7 @@ dependencies:
 - transformers
 - aeson
 - utf8-string
+- async
 
 ghc-options:
 - -Wall
