@@ -109,20 +109,21 @@ squareDiv set poll = poll <#~> case _ of
   Inactive {mark, won} -> inactiveSquare mark won
   where
   activeSquare = D.div
-      [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
+      [ klass
       , DL.click_ $ \_ -> set
       ] [ text_ "-" ]
   inactiveSquare mark won = D.div
-      [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300",
+      ([ klass ] <>
       case won of
-        true -> DA.style_ "color:red"
-        false -> DA.style_ "none"
-      ]
+        true -> [DA.style_ "color:red"]
+        false -> []
+      )
       [ case mark of
           Just Cross -> text_ "X"
           Just Nought -> text_ "O"
           Nothing -> text_ "-"
       ]
+  klass = DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
 --  ( D.div
 --      [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300" , DL.runOn DL.click $ poll <#> (setS <<< f)
 --      , DA.style $ filter identity w $> "color:red"
