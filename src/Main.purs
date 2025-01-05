@@ -3,28 +3,31 @@ module Main where
 import Prelude
 
 import Control.Alternative ((<|>))
-import Deku.DOM.Listeners as DL
+import Control.Monad.Except (ExceptT, runExcept)
 import Control.Monad.ST.Class (liftST)
 import Data.Argonaut.Core (Json)
 import Data.Argonaut.Core as Json
 import Data.Argonaut.Encode (class EncodeJson, encodeJson)
-import Data.Foldable (class Foldable, foldrDefault, foldlDefault)
-import Data.Lens (Lens')
+import Data.Either (either)
+import Data.Foldable (class Foldable, foldrDefault, foldlDefault, for_)
+import Data.Lens (Lens', view)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
+import Data.List.Types (NonEmptyList)
 import Data.Maybe (Maybe(..))
-import Data.Monoid.Disj (Disj(..))
 import Data.Newtype (class Newtype)
 import Data.Traversable (class Traversable, sequenceDefault)
 import Deku.Control (text_)
 import Deku.Core (Nut)
 import Deku.DOM as D
 import Deku.DOM.Attributes as DA
+import Deku.DOM.Listeners as DL
 import Deku.Hooks ((<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
-import FRP.Event (Event, create)
+import FRP.Event (create)
 import FRP.Poll (Poll, sham)
+import Foreign (F, Foreign, ForeignError, unsafeToForeign)
 import Routing.Hash (matches)
 import Routing.Match (Match, lit)
 import Type.Proxy (Proxy(..))
@@ -32,6 +35,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Web.Event.EventTarget (EventListener)
 import Web.Event.EventTarget as EET
 import Web.Socket.Event.EventTypes as WSET
+import Web.Socket.Event.MessageEvent as ME
 import Web.Socket.WebSocket (WebSocket)
 import Web.Socket.WebSocket as WS
 
@@ -75,19 +79,26 @@ play mark = do
     Nought -> "/join/O" 
     Cross -> "/join/X") []
   { push, event } <- liftST create
-  let _ = pollGame event
-  EET.addEventListener WSET.onMessage (listener push) false (WS.toEventTarget conn)
+  el <- listener push
+  EET.addEventListener WSET.onMessage el false (WS.toEventTarget conn)
   void $ runInBody Deku.do
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
-      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] (moves <#> \move -> squareDiv (setSquare move conn) (pollSquare move conn))
+      , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] $ moves <#> \move -> squareDiv (setSquare move conn) $ pollSquare move $ sham event
       ]
 
-listener :: (Game -> Effect Unit) -> EventListener
-listener _ = unsafeCoerce unit
+listener :: (Game -> Effect Unit) -> Effect EventListener
+listener push = EET.eventListener $ \ev -> do
+    for_ (ME.fromEvent ev) \msgEvent ->
+      for_ (readHelper readGame (ME.data_ msgEvent)) \msg ->
+        push msg
+  where
+    readHelper :: forall a b. (Foreign -> F a) -> b -> Maybe a
+    readHelper read =
+      either (const Nothing) Just <<< runExcept <<< read <<< unsafeToForeign
 
-pollGame :: Event Game -> Poll Game
-pollGame = sham
+readGame :: forall m. Monad m => Foreign -> ExceptT (NonEmptyList ForeignError) m Game
+readGame = unsafeCoerce unit
 
 sendJSON :: WebSocket -> Json -> Effect Unit
 sendJSON = unsafeCoerce unit
@@ -95,13 +106,23 @@ sendJSON = unsafeCoerce unit
 setSquare :: Move -> WebSocket -> Effect Unit
 setSquare move conn = sendJSON conn $ encodeJson move
 
-pollSquare :: Move -> WebSocket -> Poll Square
-pollSquare = unsafeCoerce unit
+type Game = { status :: Status, board :: Board Space }
+
+data Status = Won (Board Boolean) | Playing | Drawn
+
+pollSquare :: Move -> Poll Game -> Poll Square
+pollSquare move = map f where
+  f {status, board} = case status of
+    Playing -> case view lens board of
+      Nothing -> Active
+      Just mark -> Inactive {mark:Just mark, won: false}
+    Drawn -> Inactive {mark:view lens board, won: false}
+    Won wonSquares -> Inactive {mark: view lens board, won: view lens wonSquares}
+  lens = moveLens move
 
 type BoardLens = forall a. Lens' (Board a) a 
 
 data Square = Active | Inactive {mark :: Maybe Mark, won :: Boolean}
-
 
 squareDiv :: Effect Unit -> Poll Square -> Nut
 squareDiv set poll = poll <#~> case _ of 
@@ -124,25 +145,6 @@ squareDiv set poll = poll <#~> case _ of
           Nothing -> text_ "-"
       ]
   klass = DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
---  ( D.div
---      [ DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300" , DL.runOn DL.click $ poll <#> (setS <<< f)
---      , DA.style $ filter identity w $> "color:red"
---      , DA.unset @"style" $ filter not w
---      ]
---      [ poll <#~> \{board} -> case view lens board of
---          Just Cross -> text_ "X"
---          Just Nought -> text_ "O"
---          Nothing -> text_ "-"
---      ]
---  )
---  where
---  f game = fromMaybe game $ updateBoard lens game 
---  w = poll <#> \{status} -> winningSquare lens status
-
-
-getDisj :: Disj Boolean -> Boolean
-getDisj (Disj b) = b
-
 
 _nw :: BoardLens
 _nw = _Newtype <<< prop (Proxy :: Proxy "nw")
@@ -174,12 +176,9 @@ _se = _Newtype <<< prop (Proxy :: Proxy "se")
 data Mark = Nought | Cross
 type Space = Maybe Mark
 
-type Game = { status :: Status, board :: Board Space }
 
 startingGame :: Game
-startingGame = { status: Playing Nought , board: emptyBoard }
-
-data Status = Finished (Board (Disj Boolean)) | Playing Mark
+startingGame = unsafeCoerce unit
 
 newtype Board a = Board
   { nw :: a
