@@ -25,7 +25,7 @@ import Deku.DOM.Listeners as DL
 import Deku.Hooks ((<#~>))
 import Deku.Toplevel (runInBody)
 import Effect (Effect)
-import FRP.Event (create)
+import FRP.Event (create, EventIO)
 import FRP.Poll (Poll, sham)
 import Foreign (F, Foreign, ForeignError, unsafeToForeign)
 import Routing.Hash (matches)
@@ -86,6 +86,9 @@ play mark = do
       [ D.h1 [ DA.klass_ "text-2xl font-bold text-center mb-4" ] [ text_ "Noughts and Crosses" ]
       , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] $ moves <#> \move -> squareDiv (setSquare move conn) $ pollSquare move $ sham event
       ]
+
+createHooks :: Effect (Board (EventIO (Maybe Mark)))
+createHooks = unsafeCoerce unit
 
 listener :: (Game -> Effect Unit) -> Effect EventListener
 listener push = EET.eventListener $ \ev -> do
