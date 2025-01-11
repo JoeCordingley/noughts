@@ -39,10 +39,10 @@ import Web.Socket.Event.MessageEvent as ME
 import Web.Socket.WebSocket (WebSocket)
 import Web.Socket.WebSocket as WS
 
-data Move = NW | N | NE | W | C | E | SW | S | SE 
+data Move = NW | N | NE | W | C | E | SW | S | SE
 
 moves :: Array Move
-moves = [NW , N , NE , W , C , E , SW , S , SE ] 
+moves = [ NW, N, NE, W, C, E, SW, S, SE ]
 
 instance showMove :: Show Move where
   show NW = "NW"
@@ -67,7 +67,7 @@ noughtsRoute :: Match NoughtsRoute
 noughtsRoute = (NoughtRoute <$ lit "o") <|> (CrossRoute <$ lit "x")
 
 main :: Effect Unit
-main = do 
+main = do
   u <- matches noughtsRoute \_ newRoute -> case newRoute of
     NoughtRoute -> play Nought
     CrossRoute -> play Cross
@@ -75,11 +75,14 @@ main = do
 
 play :: Mark -> Effect Unit
 play mark = do
-  conn <- WS.create ("http://localhost:8080" <> case mark of
-    Nought -> "/join/O" 
-    Cross -> "/join/X") []
+  conn <- WS.create
+    ( "http://localhost:8080" <> case mark of
+        Nought -> "/join/O"
+        Cross -> "/join/X"
+    )
+    []
   { push, event } <- liftST create
-  el <- listener push
+  el <- listener (unsafeCoerce unit)
   EET.addEventListener WSET.onMessage el false (WS.toEventTarget conn)
   void $ runInBody Deku.do
     D.div [ DA.klass_ "p-6 bg-white rounded-lg shadow-lg" ]
@@ -87,21 +90,23 @@ play mark = do
       , D.div [ DA.klass_ "grid grid-cols-3 gap-2 w-64 mx-auto" ] $ moves <#> \move -> squareDiv (setSquare move conn) $ pollSquare move $ sham event
       ]
 
-createHooks :: Effect (Board (EventIO (Maybe Mark)))
-createHooks = unsafeCoerce unit
+createBoardHooks :: Effect (Board (EventIO (Maybe Mark)))
+createBoardHooks = unsafeCoerce unit
 
-listener :: (Game -> Effect Unit) -> Effect EventListener
+data GameUpdate = Game { status :: Status, board :: Board Space } | Update { move :: Move, mark :: Mark } | StatusUpdate Status
+
+listener :: (GameUpdate -> Effect Unit) -> Effect EventListener
 listener push = EET.eventListener $ \ev -> do
-    for_ (ME.fromEvent ev) \msgEvent ->
-      for_ (readHelper readGame (ME.data_ msgEvent)) \msg ->
-        push msg
+  for_ (ME.fromEvent ev) \msgEvent ->
+    for_ (readHelper readGameUpdate (ME.data_ msgEvent)) \msg ->
+      push msg
   where
-    readHelper :: forall a b. (Foreign -> F a) -> b -> Maybe a
-    readHelper read =
-      either (const Nothing) Just <<< runExcept <<< read <<< unsafeToForeign
+  readHelper :: forall a b. (Foreign -> F a) -> b -> Maybe a
+  readHelper read =
+    either (const Nothing) Just <<< runExcept <<< read <<< unsafeToForeign
 
-readGame :: forall m. Monad m => Foreign -> ExceptT (NonEmptyList ForeignError) m Game
-readGame = unsafeCoerce unit
+readGameUpdate :: forall m. Monad m => Foreign -> ExceptT (NonEmptyList ForeignError) m GameUpdate
+readGameUpdate = unsafeCoerce unit
 
 sendJSON :: WebSocket -> Json -> Effect Unit
 sendJSON = unsafeCoerce unit
@@ -114,39 +119,41 @@ type Game = { status :: Status, board :: Board Space }
 data Status = Won (Board Boolean) | Playing | Drawn
 
 pollSquare :: Move -> Poll Game -> Poll Square
-pollSquare move = map f where
-  f {status, board} = case status of
+pollSquare move = map f
+  where
+  f { status, board } = case status of
     Playing -> case view lens board of
       Nothing -> Active
-      Just mark -> Inactive {mark:Just mark, won: false}
-    Drawn -> Inactive {mark:view lens board, won: false}
-    Won wonSquares -> Inactive {mark: view lens board, won: view lens wonSquares}
+      Just mark -> Inactive { mark: Just mark, won: false }
+    Drawn -> Inactive { mark: view lens board, won: false }
+    Won wonSquares -> Inactive { mark: view lens board, won: view lens wonSquares }
   lens = moveLens move
 
-type BoardLens = forall a. Lens' (Board a) a 
+type BoardLens = forall a. Lens' (Board a) a
 
-data Square = Active | Inactive {mark :: Maybe Mark, won :: Boolean}
+data Square = Active | Inactive { mark :: Maybe Mark, won :: Boolean }
 
 squareDiv :: Effect Unit -> Poll Square -> Nut
-squareDiv set poll = poll <#~> case _ of 
+squareDiv set poll = poll <#~> case _ of
   Active -> activeSquare
-  Inactive {mark, won} -> inactiveSquare mark won
+  Inactive { mark, won } -> inactiveSquare mark won
   where
   activeSquare = D.div
-      [ klass
-      , DL.click_ $ \_ -> set
-      ] [ text_ "-" ]
+    [ klass
+    , DL.click_ $ \_ -> set
+    ]
+    [ text_ "-" ]
   inactiveSquare mark won = D.div
-      ([ klass ] <>
-      case won of
-        true -> [DA.style_ "color:red"]
-        false -> []
-      )
-      [ case mark of
-          Just Cross -> text_ "X"
-          Just Nought -> text_ "O"
-          Nothing -> text_ "-"
-      ]
+    ( [ klass ] <>
+        case won of
+          true -> [ DA.style_ "color:red" ]
+          false -> []
+    )
+    [ case mark of
+        Just Cross -> text_ "X"
+        Just Nought -> text_ "O"
+        Nothing -> text_ "-"
+    ]
   klass = DA.klass_ "cell flex items-center justify-center w-20 h-20 bg-gray-200 text-3xl font-bold rounded cursor-pointer hover:bg-gray-300"
 
 _nw :: BoardLens
@@ -179,7 +186,6 @@ _se = _Newtype <<< prop (Proxy :: Proxy "se")
 data Mark = Nought | Cross
 type Space = Maybe Mark
 
-
 startingGame :: Game
 startingGame = unsafeCoerce unit
 
@@ -210,15 +216,15 @@ emptyBoard = Board
   , se: Nothing
   }
 
-instance functorBoard :: Functor Board where 
-  map f (Board {nw, n, ne, w, c, e, sw, s, se}) = Board {nw: f nw, n: f n, ne: f ne, w: f w, c: f c, e: f e, sw: f sw, s: f s, se: f se}
+instance functorBoard :: Functor Board where
+  map f (Board { nw, n, ne, w, c, e, sw, s, se }) = Board { nw: f nw, n: f n, ne: f ne, w: f w, c: f c, e: f e, sw: f sw, s: f s, se: f se }
 
 instance foldableBoard :: Foldable Board where
-  foldMap f (Board {nw, n, ne, w, c, e, sw, s, se}) = f nw <> f n <> f ne <> f w <> f c <> f e <> f sw <> f s <> f se
+  foldMap f (Board { nw, n, ne, w, c, e, sw, s, se }) = f nw <> f n <> f ne <> f w <> f c <> f e <> f sw <> f s <> f se
   foldl f = foldlDefault f
   foldr f = foldrDefault f
 
 instance traverseBoard :: Traversable Board where
-  traverse f (Board {nw, n, ne, w, c, e, sw, s, se}) = map Board $ {nw: _, n: _, ne: _, w: _, c: _, e: _, sw: _, s: _, se: _} <$> f nw <*> f n <*> f ne <*> f w <*> f c <*> f e <*> f sw <*> f s <*> f se 
+  traverse f (Board { nw, n, ne, w, c, e, sw, s, se }) = map Board $ { nw: _, n: _, ne: _, w: _, c: _, e: _, sw: _, s: _, se: _ } <$> f nw <*> f n <*> f ne <*> f w <*> f c <*> f e <*> f sw <*> f s <*> f se
   sequence = sequenceDefault
 
