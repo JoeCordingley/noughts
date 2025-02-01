@@ -9,5 +9,5 @@ import Websockets.Noughts
 
 main :: IO ()
 main = do
-  state <- seats
-  startApp state app playNoughts
+    state <- prepareSeats
+    startApp state app playNoughts

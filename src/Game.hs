@@ -1,24 +1,19 @@
-module Game
-  ( CompletionStatus (..),
+module Game (
+    CompletionStatus (..),
     playGame,
-    Players (..),
     PlayMove,
-  )
+)
 where
 
-type PlayMove player f = player -> f CompletionStatus
+type PlayMove player f = player -> f (CompletionStatus player)
 
-data CompletionStatus = Finished | Playing
+data CompletionStatus player = Finished | Playing player
 
-class Players player where
-  firstPlayer :: player
-  nextPlayer :: player -> player
-
-playGame :: (Monad f, Players player) => PlayMove player f -> f ()
-playGame playMove = play firstPlayer
+playGame :: Monad f => PlayMove player f -> player -> f ()
+playGame playMove firstPlayer = play firstPlayer
   where
     play player = do
-      game <- playMove player
-      case game of
-        Finished -> return ()
-        Playing -> play (nextPlayer player)
+        game <- playMove player
+        case game of
+            Finished -> return ()
+            Playing nextPlayer -> play nextPlayer
